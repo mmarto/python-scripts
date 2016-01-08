@@ -1,0 +1,7 @@
+20160108 11:57:02 AM Unhandled exception: Traceback (most recent call last):
+  File "C:\Users\mhristov\gitprojects\python-scripts\getSehkntlTradeFigures.py", line 87, in <module>
+    main()
+  File "C:\Users\mhristov\gitprojects\python-scripts\getSehkntlTradeFigures.py", line 32, in main
+    sdf
+NameError: name 'sdf' is not defined
+
