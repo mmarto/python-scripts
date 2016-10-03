@@ -118,7 +118,7 @@ def rowsToDictList(cursor):
 def queryTradestoreFiles(pd, startDate, endDate, filter_=None, columns=None, skipZeroTrades=False, dropDuplicateTrades=False):
     '''Function to get data from tradestore files located at /home/users/csprod/ibcs/data/tradestore/IN/
     Params: startDate, endDate format YYYYMMDD
-            filter example: filter = lambda df: df['CONTRA_FIRM_ID'] == 'F764576'
+            filter example: filter = lambda df: df['CONTRA_FIRM_ID'] == ''
             columns example: list of column names ['CONTRA_FIRM_ID', 'EXCHANGE', 'CONTRACT_ID']
             
             #Pos Column Name
