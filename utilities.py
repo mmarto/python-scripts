@@ -80,7 +80,7 @@ def getDbConnection(dbAlias, schema=None, asEngine=False, echo=False):
     If asEngine argument is set to True returns sqlalchemy engine.
     If echo is set to True makes the engine in echo mode    
     
-    Usage: conn = getDbConnection('ORADEVIBCUST')
+    Usage: conn = getDbConnection('ORADEV')
     
     '''
     conn = None
@@ -118,61 +118,17 @@ def rowsToDictList(cursor):
 def queryTradestoreFiles(pd, startDate, endDate, filter_=None, columns=None, skipZeroTrades=False, dropDuplicateTrades=False):
     '''Function to get data from tradestore files located at /home/users/csprod/ibcs/data/tradestore/IN/
     Params: startDate, endDate format YYYYMMDD
-            filter example: filter = lambda df: df['CONTRA_FIRM_ID'] == ''
-            columns example: list of column names ['CONTRA_FIRM_ID', 'EXCHANGE', 'CONTRACT_ID']
+            filter example: filter = lambda df: df['COMPANY_ID'] == ''
+            columns example: list of column names ['ACCOUNT_ID', 'EXCHANGE_NAME', 'CONTRACT']
             
             #Pos Column Name
-            0     EXEC_ID
-            1     TRADE_DT
-            2     TRADE_TM
-            3     CONTRACT_ID
-            4     CONTRACT_SYMBOL
-            5     CONTRACT_TYPE
-            6     QUANTITY
-            7     PRICE_NUM
-            8     PRICE_DEN
-            9     EXCHANGE
-            10    PARTIAL_FILL
-            11    ORDER_DT
-            12    ORDER_TM
-            13    CLEARING_FIRM_ID
-            14    CONTRA_FIRM_ID
-            15    GIVEUP_FIRM_ID
-            16    ORDER_ID
-            17    USER_ID
-            18    ORDER_ATTRIB
-            19    EXEC_ATTRIB
-            20    EXTERNAL_EXEC_ID
-            21    PRICE
-            22    IBCUSTACCT_ID
-            23    CLIENT_ACCT_REF
-            24    CLIENT_ORDER_REF
-            25    PARENT_EXEC_ID
-            26    CLEARING_MEMBER_ACCT
-            27    ORDER_ATTRIB_HEX
-            28    MISC1
-            29    BLOCK_ID
-            30    ORIGINAL_ECP_TSTAMP
-            31    EXEC_ATTRIB_HEX
-            32    ORDER_ATTRIB_STR
-            33    EXEC_ATTRIB_HEX_STR
-            34    THIInfoCol
-            35    THIInfoCol
-            36    THIInfoCol
-            37    THIInfoCol
-            38    THIInfoCol
-            39    THIInfoCol
-            40    THIInfoCol
-            41    THIInfoCol
-            42    THIInfoCol
-            43    THIInfoCol
-            44    THIInfoCol
+
     '''
     
     datelist = pd.date_range(start=pd.to_datetime(startDate, format='%Y%m%d'), end=pd.to_datetime(endDate, format='%Y%m%d'))
     dfs = list()
     for dt in datelist.tolist():
-        file = '/home/users/csprod/ibcs/data/tradestore/IN/tradestore.alldata.{0:%Y%m%d}.gz'.format(dt)
+        file = '/home/mhristov//IN/trades.data.{0:%Y%m%d}.gz'.format(dt)
         print('Parsing file: {}'.format(file))
         if os.path.exists(file):
             iter_csv = pd.read_csv(file, sep='|', compression='gzip', iterator=True, chunksize=100000)
@@ -234,28 +190,26 @@ def memory_usage():
     return mem
 
 @timeit
-def getAcctsProperties(engineIbcust, acctSeries, columns):
+def getAcctsProperties(engine, acctSeries, columns):
     '''Function to get acct properties from different tables in the database based on a series/list of accts.
     Supported tables:
-        CUSTOMERACCOUNT_RTAB, APPLICANT_RTAB, ACCOUNTHIERARCHY, CUSTOMERACCOUNTUSERS_RTAB, universalAccount_rtab
-        accountCapability_rtab, REP_ACCT_FIN_SUMMARY, IBUSER_RTAB, INDIVIDUAL_RTAB, ACCT_CASH_BAL_SUMM
+        CUSTOMER, APPLICANT, ACCOUNT, CUSTOMERACCOUNTUSER
     Usage:
-        df = getAcctsProperties(engineIbcust, acctSeries, columns)
-        engineIbcust: sqlalchemy engine
+        df = getAcctsProperties(engine, acctSeries, columns)
+        engine: sqlalchemy engine
         acctSeries: pd.Series/list of accts
         columns: list of desired columns from the supported tables
             dummy columns can be provided for calling various plsql function
             supported dummy columns:
-                ['acct_type', 'acct_country', 'acct_region', 'is_stl', 'is_unreal', 'is_margin_acct', 'is_ecp']
+                ['type', 'country', 'region', 'unreal']
     '''
     import pandas as pd
     import sqlalchemy as sa
     
     columns = list(map(str.lower, columns))
 
-    tables = ['CUSTOMERACCOUNT_RTAB', 'APPLICANT_RTAB', 'ACCOUNTHIERARCHY',
-              'CUSTOMERACCOUNTUSERS_RTAB', 'universalAccount_rtab', 'accountCapability_rtab',
-              'ENTITYASSOC_RTAB', 'REP_ACCT_FIN_SUMMARY', 'IBUSER_RTAB', 'INDIVIDUAL_RTAB', 'ACCT_CASH_BAL_SUMM']
+    tables = ['CUSTOMER', 'APPLICANT', 'ACCOUNT',
+              'CUSTOMERACCOUNTUSER']
     tables = list(map(str.upper, tables))
     
     tableObjs = ('customerAccountObj', 'applicantObj', 'accountHierarchyObj',
@@ -265,12 +219,12 @@ def getAcctsProperties(engineIbcust, acctSeries, columns):
     tableObjsDict = dict(zip(tableObjs, tables))
 
     # special columns not available in the supported tables
-    dummyColumns = ['acct_type', 'acct_country', 'acct_region', 'is_stl', 'is_unreal', 'is_margin_acct', 'is_ecp']
+    dummyColumns = ['type', 'country', 'region', 'unreal']
 
-    checkIfColumnsInTables(engineIbcust, tables, columns, dummyColumns)
+    checkIfColumnsInTables(engine, tables, columns, dummyColumns)
 
 #     print(tables)
-    filteredTables = filterTablesByColumns(engineIbcust, tables, columns)
+    filteredTables = filterTablesByColumns(engine, tables, columns)
     # print(filteredTables)
     for k in tableObjsDict:
         if tableObjsDict[k] not in filteredTables:
@@ -298,30 +252,30 @@ def getAcctsProperties(engineIbcust, acctSeries, columns):
     
     bar = pyprind.ProgBar(len(chunks), monitor=True, title='getAcctsProperties')
     for chunk in chunks:
-        dfCustomerAccount = getDfFromTableObj(pd, sa, engineIbcust, tableObjsDict['customerAccountObj'], chunk, allColumns, columns)
+        dfCustomerAccount = getDfFromTableObj(pd, sa, engine, tableObjsDict['customerAccountObj'], chunk, allColumns, columns)
         # dfCustomerAccount.head()
-        dfApplicant = getDfFromTableObj(pd, sa, engineIbcust, tableObjsDict['applicantObj'], dfCustomerAccount.applicant_id, allColumns, columns)
+        dfApplicant = getDfFromTableObj(pd, sa, engine, tableObjsDict['applicantObj'], dfCustomerAccount.applicant_id, allColumns, columns)
         if dfApplicant is None:
             dfApplicant = pd.DataFrame(columns=['id'])
-        dfAccountHierarchy = getDfFromTableObj(pd, sa, engineIbcust, tableObjsDict['accountHierarchyObj'], dfCustomerAccount.acct_id, allColumns, columns)
+        dfAccountHierarchy = getDfFromTableObj(pd, sa, engine, tableObjsDict['accountHierarchyObj'], dfCustomerAccount.acct_id, allColumns, columns)
         if dfAccountHierarchy is None:
             dfAccountHierarchy = pd.DataFrame(columns=['sub_acct_id'])
-        dfUniversalAccount = getDfFromTableObj(pd, sa, engineIbcust, tableObjsDict['universalAcctObj'], dfCustomerAccount.acct_id, allColumns, columns)
+        dfUniversalAccount = getDfFromTableObj(pd, sa, engine, tableObjsDict['universalAcctObj'], dfCustomerAccount.acct_id, allColumns, columns)
         if dfUniversalAccount is None:
             dfUniversalAccount = df = pd.DataFrame(columns=['acct_id'])
-        dfAcctCapability = getDfFromTableObj(pd, sa, engineIbcust, tableObjsDict['acctCapabilityObj'], dfCustomerAccount.acct_id, allColumns, columns)
+        dfAcctCapability = getDfFromTableObj(pd, sa, engine, tableObjsDict['acctCapabilityObj'], dfCustomerAccount.acct_id, allColumns, columns)
         if dfAcctCapability is None:
             dfAcctCapability = pd.DataFrame(columns=['acct_id'])
-        dfIbUser = getDfFromTableObj(pd, sa, engineIbcust, tableObjsDict['custAcctUsersObj'], dfCustomerAccount.acct_id, allColumns, columns)
+        dfIbUser = getDfFromTableObj(pd, sa, engine, tableObjsDict['custAcctUsersObj'], dfCustomerAccount.acct_id, allColumns, columns)
         if dfIbUser is None:
             dfIbUser = pd.DataFrame(columns=['acct_id'])
-        dfIndividual = getDfFromTableObj(pd, sa, engineIbcust, tableObjsDict['entityAssocObj'], dfCustomerAccount.applicant_id, allColumns, columns)
+        dfIndividual = getDfFromTableObj(pd, sa, engine, tableObjsDict['entityAssocObj'], dfCustomerAccount.applicant_id, allColumns, columns)
         if dfIndividual is None:
             dfIndividual = df = pd.DataFrame(columns=['applicant_id'])
-        dfRepAcctFinSum = getDfFromTableObj(pd, sa, engineIbcust, tableObjsDict['repAcctFinSumObj'], dfCustomerAccount.acct_id, allColumns, columns)
+        dfRepAcctFinSum = getDfFromTableObj(pd, sa, engine, tableObjsDict['repAcctFinSumObj'], dfCustomerAccount.acct_id, allColumns, columns)
         if dfRepAcctFinSum is None:
             dfRepAcctFinSum = df = pd.DataFrame(columns=['acct_id'])
-        dfCashBalSum = getDfFromTableObj(pd, sa, engineIbcust, tableObjsDict['cashBalSumObj'], dfCustomerAccount.acct_id, allColumns, columns)
+        dfCashBalSum = getDfFromTableObj(pd, sa, engine, tableObjsDict['cashBalSumObj'], dfCustomerAccount.acct_id, allColumns, columns)
         if dfCashBalSum is None:
             dfCashBalSum = df = pd.DataFrame(columns=['acct_id'])
         
@@ -358,15 +312,15 @@ def getAcctsProperties(engineIbcust, acctSeries, columns):
     print(bar)
     return df
 
-def filterTablesByColumns(engineIbcust, tables, columns):
-    # conn = engineIbcust.connect()
+def filterTablesByColumns(engine, tables, columns):
+    # conn = engine.connect()
     sql = '''
     select distinct table_name from all_tab_columns 
     where table_name in ({})
     and column_name in ({})
     '''.format(','.join(["'{}'".format(t.upper()) for t in tables]), ','.join(["'{}'".format(c.upper()) for c in columns]))
     #print(sql)
-    result = engineIbcust.execute(sql)
+    result = engine.execute(sql)
     tabs = [r[0] for r in result]
     if 'IBUSER_RTAB' in tabs:
         tabs.append('CUSTOMERACCOUNTUSERS_RTAB')    
@@ -379,7 +333,7 @@ def filterTablesByColumns(engineIbcust, tables, columns):
     # conn.close()
     return tabs
 
-def checkIfColumnsInTables(engineIbcust, tables, columns, dummyColumns):
+def checkIfColumnsInTables(engine, tables, columns, dummyColumns):
     sql = '''
     select count(1) cnt from all_tab_columns
     where table_name in ({})
@@ -389,7 +343,7 @@ def checkIfColumnsInTables(engineIbcust, tables, columns, dummyColumns):
     unknownColumns = list()
 
     for column in columns:
-        res = engineIbcust.execute(sql, column)
+        res = engine.execute(sql, column)
         cnt = res.fetchone()[0]
 
         if cnt == 0 and column not in dummyColumns:
@@ -397,17 +351,17 @@ def checkIfColumnsInTables(engineIbcust, tables, columns, dummyColumns):
     if len(unknownColumns) > 0:
         raise Exception('Unknown column(s): {}'.format(unknownColumns))
 
-def getDfFromTableObj(pd, sa, engineIbcust, tableName, series, allColumns, columns):
+def getDfFromTableObj(pd, sa, engine, tableName, series, allColumns, columns):
     df = None
     needsJoin = False
     
     selectedColumns = None
     colLength = 0
     
-    metadata = sa.MetaData(bind=engineIbcust)
+    metadata = sa.MetaData(bind=engine)
 
-    if tableName in ['CUSTOMERACCOUNT_RTAB', 'UNIVERSALACCOUNT_RTAB', 'ACCOUNTCAPABILITY_RTAB']:
-        tableObj = sa.Table(tableName.upper(), metadata, schema='ibcust', autoload=True)
+    if tableName in ['CUSTOMER', 'UNIVERSALACCOUNT', 'ACCOUNT']:
+        tableObj = sa.Table(tableName.upper(), metadata, schema='test', autoload=True)
         selectedColumns = [c for c in tableObj.columns if c.name in allColumns]
         colLength = len([c for c in tableObj.columns if c.name in columns])     
         if 'acct_type' in columns:
@@ -418,9 +372,9 @@ def getDfFromTableObj(pd, sa, engineIbcust, tableName, series, allColumns, colum
             colLength += 1
             is_stl = sa.func.pa_rep_cust_fns.fn_isSTL(tableObj.c.acct_id).label('is_stl')
             selectedColumns.append(is_stl)
-        if 'is_unreal' in columns:
+        if 'real' in columns:
             colLength += 1
-            is_unreal = sa.func.pa_rep_cust_fns.fn_isUnrealAcct(tableObj.c.acct_id).label('is_unreal')
+            is_unreal = sa.func.pa_rep_cust_fns.fn_isUnrealAcct(tableObj.c.acct_id).label('real')
             selectedColumns.append(is_unreal)
         if 'is_margin_acct' in columns:
             colLength += 1
@@ -434,7 +388,7 @@ def getDfFromTableObj(pd, sa, engineIbcust, tableName, series, allColumns, colum
         df = pd.DataFrame(columns=['acct_id'])
         filter_ = tableObj.c.acct_id.in_(series.tolist())
     elif tableName == 'APPLICANT_RTAB':
-        tableObj = sa.Table(tableName.upper(), metadata, schema='ibcust', autoload=True)
+        tableObj = sa.Table(tableName.upper(), metadata, schema='test', autoload=True)
         selectedColumns = [c for c in tableObj.columns if c.name in allColumns]
         colLength = len([c for c in tableObj.columns if c.name in columns])
         df = pd.DataFrame(columns=['id'])
@@ -450,33 +404,33 @@ def getDfFromTableObj(pd, sa, engineIbcust, tableName, series, allColumns, colum
             acct_region = sa.func.pa_rep_cust_fns.fn_getIBREPContinent(sa.func.pa_rep_cust_fns.getCountryLabel(sa.func.upper(sa.func.nvl(tableObj.c.country_of_legal_res, tableObj.c.country)))).label('acct_region')
             selectedColumns.append(acct_region)
 
-    elif tableName == 'ACCOUNTHIERARCHY':
-        tableObj = sa.Table(tableName.upper(), metadata, schema='ibcust', autoload=True)
+    elif tableName == 'ACCOUNT':
+        tableObj = sa.Table(tableName.upper(), metadata, schema='test', autoload=True)
         selectedColumns = [c for c in tableObj.columns if c.name in allColumns]
         colLength = len([c for c in tableObj.columns if c.name in columns])
         df = pd.DataFrame(columns=['sub_acct_id'])
         filter_ = tableObj.c.sub_acct_id.in_(series.tolist())
-    elif tableName == 'CUSTOMERACCOUNTUSERS_RTAB':
-        tableObj = sa.Table(tableName.upper(), metadata, schema='ibcust', autoload=True)
+    elif tableName == 'CUSTOMERACCOUNTUSER':
+        tableObj = sa.Table(tableName.upper(), metadata, schema='test', autoload=True)
         selectedColumns = [c for c in tableObj.columns if c.name in allColumns]
         colLength = len([c for c in tableObj.columns if c.name in columns])
         df = pd.DataFrame(columns=['acct_id'])
         filter_ = tableObj.c.acct_id.in_(series.tolist())
-        ibUserObj = sa.Table('IBUSER_RTAB', metadata, schema='ibcust', autoload=True)
+        ibUserObj = sa.Table('USER', metadata, schema='test', autoload=True)
         joinClause = tableObj.c.user_id == ibUserObj.c.id
         needsJoin = True
         moreColumns = [c for c in ibUserObj.columns if c.name in columns]
         colLength += len(moreColumns)
         selectedColumns.extend(moreColumns)
 #         print(selectedColumns)
-    elif tableName == 'ENTITYASSOC_RTAB':
-        tableObj = sa.Table(tableName.upper(), metadata, schema='ibcust', autoload=True)
+    elif tableName == 'ENTITY':
+        tableObj = sa.Table(tableName.upper(), metadata, schema='test', autoload=True)
         selectedColumns = [c for c in tableObj.columns if c.name in allColumns]
         colLength = len([c for c in tableObj.columns if c.name in columns])
         df = pd.DataFrame(columns=['applicant_id'])
         filter_ = tableObj.c.applicant_id.in_(series.tolist())
 
-        indivObj = sa.Table('INDIVIDUAL_RTAB', metadata, schema='ibcust', autoload=True)
+        indivObj = sa.Table('INDIVIDUAL_RTAB', metadata, schema='test', autoload=True)
         joinClause = tableObj.c.entity_id == indivObj.c.id
         needsJoin = True
         moreColumns = [c for c in indivObj.columns if c.name in columns]
@@ -513,9 +467,9 @@ def getDfFromTableObj(pd, sa, engineIbcust, tableName, series, allColumns, colum
         return None
 
 @timeit
-def getAccts(engineIbcust, filterDict, asSql=False):
+def getAccts(engine, filterDict, asSql=False):
     '''Function for getting list of acct_ids based on a filter parsed as dictionary with syntax similar to elastic search
-    usage: df = getAccts(engineIbcust, filterDict)
+    usage: df = getAccts(engine, filterDict)
     ex: filterDict = {"or" : {
                     "clearing_status" :  "O",
                     "applicant_rtab.type" : "ORG"
@@ -528,7 +482,7 @@ def getAccts(engineIbcust, filterDict, asSql=False):
                         "between": (20160801, 20160820)
                     },
                     "rep_dim_acct.acct_id": {
-                        "in" : sa.text("select acct_id from ibcust.customerAccount_rtab where rownum < 6")
+                        "in" : sa.text("select acct_id from customerAccount where rownum < 6")
                     }
                 }
             }
@@ -584,11 +538,11 @@ def getAccts(engineIbcust, filterDict, asSql=False):
         col = eval('tableObj.c.{}'.format(field))
         return OPERATORS[operator](col, value)
     
-    # engineIbcust = getDbConnection('ORAIBCUST', asEngine=True)
-    metadata = sa.MetaData(bind=engineIbcust)
+    # engine = getDbConnection('ORAI', asEngine=True)
+    metadata = sa.MetaData(bind=engine)
     
-    customeraccount_rtab = sa.Table('customeraccount_rtab'.upper(), metadata, schema='ibcust', autoload=True).alias('ca')
-    applicant_rtab = sa.Table('applicant_rtab'.upper(), metadata, schema='ibcust', autoload=True).alias('ap')
+    customeraccount_rtab = sa.Table('customeraccount_rtab'.upper(), metadata, schema='test', autoload=True).alias('ca')
+    applicant_rtab = sa.Table('applicant_rtab'.upper(), metadata, schema='test', autoload=True).alias('ap')
     rep_dim_acct = sa.Table('rep_dim_acct'.upper(), metadata, autoload=True).alias('rda')
     
     customerAccount_cols = customeraccount_rtab.columns.keys()
