@@ -467,7 +467,7 @@ def getDfFromTableObj(pd, sa, engine, tableName, series, allColumns, columns):
         return None
 
 @timeit
-def getAccts(engine, filterDict, asSql=False):
+def getAccts(engine, filterDict, asSql=False, includeFilterColumns=False):
     '''Function for getting list of acct_ids based on a filter parsed as dictionary with syntax similar to elastic search
     usage: df = getAccts(engine, filterDict)
     ex: filterDict = {"or" : {
@@ -489,6 +489,7 @@ def getAccts(engine, filterDict, asSql=False):
     '''
     import sqlalchemy as sa
     from pandas import DataFrame
+
     """ Valid operators """
     OPERATORS = {
         'like': lambda f, a: f.like(a),
@@ -541,8 +542,8 @@ def getAccts(engine, filterDict, asSql=False):
     # engine = getDbConnection('ORAI', asEngine=True)
     metadata = sa.MetaData(bind=engine)
     
-    customeraccount_rtab = sa.Table('customeraccount_rtab'.upper(), metadata, schema='test', autoload=True).alias('ca')
-    applicant_rtab = sa.Table('applicant_rtab'.upper(), metadata, schema='test', autoload=True).alias('ap')
+    customeraccount_rtab = sa.Table('customeraccount_rtab'.upper(), metadata, autoload=True).alias('ca')
+    applicant_rtab = sa.Table('applicant_rtab'.upper(), metadata, autoload=True).alias('ap')
     rep_dim_acct = sa.Table('rep_dim_acct'.upper(), metadata, autoload=True).alias('rda')
     
     customerAccount_cols = customeraccount_rtab.columns.keys()
@@ -552,6 +553,7 @@ def getAccts(engine, filterDict, asSql=False):
     needApplicantJoin = False
     needRepDimAcctJoin = False
     q = []
+    cols = list()
     for filter_type in filterDict:
         if filter_type == 'or' or filter_type == 'and':
             conditions = []
@@ -569,12 +571,12 @@ def getAccts(engine, filterDict, asSql=False):
                     field, operator, value = parse_field(field, filterDict[filter_type][field])
                     # print(field_, operator, value)
                     col = eval('{}.c.{}'.format(table_name, field_))
+                    cols.append(col)
                     conditions.append(OPERATORS[operator](col, value))
                     
                     continue
                     
                 attr = parse_field(field, filterDict[filter_type][field])
-                
                 if field in customerAccount_cols and (field in applicant_cols or field in rep_dim_acct_cols):
                     raise Exception('Column {} available in more than 1 table'.format(field))
                 elif field in applicant_cols and (field in customerAccount_cols or field in rep_dim_acct_cols):
@@ -582,12 +584,15 @@ def getAccts(engine, filterDict, asSql=False):
                 elif field in customerAccount_cols:
                     # print('Column is from {} table'.format(customeraccount_rtab))
                     # print(attr)
+                    cols.append(eval('{}.c.{}'.format(customeraccount_rtab, field)))
                     conditions.append(create_query(customeraccount_rtab, attr))
                 elif field in applicant_cols:
                     # print('Column {} is from {} table'.format(field, applicant_rtab))
+                    cols.append(eval('{}.c.{}'.format(applicant_rtab, field)))
                     conditions.append(create_query(applicant_rtab, attr))
                     needApplicantJoin = True
                 elif field in rep_dim_acct_cols:
+                    cols.append(eval('{}.c.{}'.format(rep_dim_acct, field)))
                     conditions.append(create_query(rep_dim_acct, attr))
                     needRepDimAcctJoin = True
                 else:
@@ -609,23 +614,32 @@ def getAccts(engine, filterDict, asSql=False):
                     needRepDimAcctJoin = True
                 field, operator, value = parse_field(filter_type, filterDict[filter_type])
                 col = eval('{}.c.{}'.format(table_name, field_))
+                cols.append(col)
                 q.append(OPERATORS[operator](col, value))
                 continue  
             attr = parse_field(filter_type, filterDict[filter_type])
+
             if filter_type in customerAccount_cols and (filter_type in applicant_cols or filter_type in rep_dim_acct_cols):
                 raise Exception('Column {} available in more than 1 table'.format(filter_type))
             elif filter_type in applicant_cols and (filter_type in customerAccount_cols or filter_type in rep_dim_acct_cols):
                 raise Exception('Column {} available in more than 1 table'.format(filter_type))
             elif filter_type in customerAccount_cols:
+                cols.append(eval('{}.c.{}'.format(customeraccount_rtab, field)))
                 q.append(create_query(customeraccount_rtab, attr))
             elif filter_type in applicant_cols:
+                cols.append(eval('{}.c.{}'.format(applicant_rtab, field)))
                 q.append(create_query(applicant_rtab, attr))
                 needApplicantJoin = True
             elif filter_type in rep_dim_acct_cols:
+                cols.append(eval('{}.c.{}'.format(rep_dim_acct, filter_type)))
                 q.append(create_query(rep_dim_acct_cols, attr))
                 needRepDimAcctJoin = True
-                
-    s = sa.select([customeraccount_rtab.c.acct_id])
+
+    print(cols)
+    if includeFilterColumns:
+        s = sa.select([customeraccount_rtab.c.acct_id]+cols)
+    else:
+        s = sa.select([customeraccount_rtab.c.acct_id])
 
     if needApplicantJoin and not needRepDimAcctJoin:
         j = customeraccount_rtab.join(applicant_rtab, customeraccount_rtab.c.applicant_id == applicant_rtab.c.id)
